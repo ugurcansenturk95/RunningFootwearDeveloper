@@ -1,5 +1,6 @@
 from nicegui import ui, app
 import os, io, re, pandas as pd, requests
+from pathlib import Path
 
 # =========================
 # CONFIG
@@ -8,10 +9,19 @@ DATA_URL = os.getenv("DATA_URL", "").strip()
 DATA_FILE = os.getenv("DATA_FILE", "").strip()
 REQUIRED_LETTERS = ["B","C","D","H","K","L","M","N","O","P"]
 
-# İntersport tema renkleri
-PRIMARY_BG = '#004794'   # arka plan
-TEXT_COLOR = '#FFFFFF'   # metin
+# İntersport tema renkleri (güncel)
+PRIMARY_BG = '#F2F0EF'   # arka plan (açık gri/bej)
+TEXT_COLOR = '#585f69'   # koyu gri yazı
 ACTIVE_COLOR = '#E90000' # seçili toggle / birincil buton
+
+# =========================
+# STATIC / LOGO (assets güvenli)
+# =========================
+BASE_DIR = Path(__file__).parent
+ASSETS_DIR = BASE_DIR / 'assets'
+ASSETS_DIR.mkdir(parents=True, exist_ok=True)     # yoksa oluştur
+app.add_static_files('/assets', str(ASSETS_DIR))  # statik bağla
+LOGO_FILE = ASSETS_DIR / 'intersport_logo.png'    # burada arar
 
 # =========================
 # HELPERS
@@ -165,49 +175,61 @@ DFN = build_normalized_view(DF)
 OUT_COLS = resolve_output_columns(DF)
 
 # =========================
-# THEME (Intersport)
+# THEME (Intersport + App hissi)
 # =========================
 ui.page_title('Intersport Running Footwear')
+ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">')
 
-# Koyu mod → açık zemin üstünde koyu bileşenleri beyaz metinle gösterir
+# Açık renk tema için dark mode'u KAPAT
 dark = ui.dark_mode()
-dark.enable()
+dark.disable()
 
-# Global CSS (yüzde formatı ile!)
+# Global CSS — f-string YOK, .format YOK
 css = """
 <style>
   :root {
-    --brand-bg: %(bg)s;
-    --brand-text: %(text)s;
-    --brand-active: %(active)s;
+    --brand-bg: #F2F0EF;
+    --brand-text: #585f69;
+    --brand-active: #E90000;
     --radius-lg: 16px;
   }
-  body { background: var(--brand-bg); color: var(--brand-text); }
+  html, body { height: 100dvh; margin: 0; }
+  /* Tüm ana yüzeyleri açık arka plan yap */
+  body, .q-layout, .q-page-container, .q-page { background: var(--brand-bg) !important; color: var(--brand-text) !important; }
   .q-header { background: var(--brand-bg) !important; color: var(--brand-text) !important; }
-  .q-card { background: transparent !important; border: 1px solid rgba(255,255,255,.25); border-radius: var(--radius-lg); }
-  .q-separator { background: rgba(255,255,255,.2) !important; }
+  .app-card { width: 100%; max-width: 680px; margin: clamp(8px, 5vh, 32px) auto 0; text-align: center; }
+  .q-card { background: transparent !important; border: 1px solid rgba(0,0,0,.06); border-radius: var(--radius-lg); }
+  .q-separator { background: rgba(0,0,0,.08) !important; }
   .q-btn { color: var(--brand-text); }
   .q-btn-toggle .q-btn.q-btn--active, .q-btn.q-btn--active {
     background: var(--brand-active) !important;
     color: #fff !important;
   }
   .btn-primary { background: var(--brand-active) !important; color: #fff !important; border-radius: var(--radius-lg); }
-  .q-table__container { background: transparent !important; color: var(--brand-text) !important; }
-  .q-table thead th { background: rgba(255,255,255,.10); color: var(--brand-text) !important; }
-  .q-table tbody td { color: var(--brand-text) !important; }
-  .q-table__bottom, .q-table__top { color: var(--brand-text) !important; }
+  .table-wrap .q-table__container { background: transparent !important; color: var(--brand-text) !important; }
+  .table-wrap .q-table thead th { background: rgba(0,0,0,.04); color: var(--brand-text) !important; }
+  .table-wrap .q-table tbody td { color: var(--brand-text) !important; }
+  .table-wrap .q-table__bottom, .table-wrap .q-table__top { color: var(--brand-text) !important; }
+  /* Mobilde sabit CTA butonu */
+  @media (max-width: 640px) {
+    .fixed-cta { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 1000; }
+    .cta-spacer { height: 64px; }
+  }
 </style>
-""" % {"bg": PRIMARY_BG, "text": TEXT_COLOR, "active": ACTIVE_COLOR}
+"""
 ui.add_head_html(css)
 
 # =========================
 # UI
 # =========================
-with ui.header().classes('items-center justify-between'):
-    ui.label('Intersport Running Footwear').classes('text-lg md:text-xl font-semibold')
-    ui.label('Koşucuya özel öneri sihirbazı').classes('text-sm opacity-90')
+# Üstte logo: varsa göster, yoksa marka adı yaz
+with ui.header().classes('justify-center'):
+    if LOGO_FILE.exists():
+        ui.image('/assets/intersport_logo.png').props('fit=contain').style('height:48px')
+    else:
+        ui.label('INTERSPORT').classes('text-lg md:text-xl font-semibold')
 
-with ui.card().classes('max-w-2xl mx-auto mt-8'):
+with ui.card().classes('app-card'):
     ui.label('Soru 1/7 — Cinsiyet').classes('text-base font-medium')
     q1 = ui.toggle(['Erkek','Kadin']).props('dense'); q1.value = 'Erkek'
 
@@ -235,9 +257,13 @@ with ui.card().classes('max-w-2xl mx-auto mt-8'):
     ui.label('Soru 7/7 — Pronasyon').classes('text-base font-medium')
     q7 = ui.toggle(['Evet','Hayir']).props('dense'); q7.value = 'Hayir'
 
-    result_area = ui.column().classes('mt-4')
+    # Sonuç alanı (başta gizli)
+    results_open = {'value': False}
+    results_section = ui.column().classes('mt-4 table-wrap')
+    results_section.style('display:none')
 
     def compute():
+        """Filtrele ve sonuçları oluştur; göster."""
         params = dict(gender=q1.value, surface=q2.value, goal=q3.value, freq=q4.value, distance=q5.value, injury=q6.value, pronation=q7.value)
         f = DFN.copy()
         f = f[f["q1"] == ("erkek" if params["gender"] == "Erkek" else "kadin")]
@@ -253,8 +279,9 @@ with ui.card().classes('max-w-2xl mx-auto mt-8'):
             f = f[f["q7_pronation_yes"] == True]
 
         show_cols = [c for c in OUT_COLS if c in f.columns]
-        with result_area:
-            result_area.clear()
+
+        with results_section:
+            results_section.clear()
             ui.label(f'Toplam sonuç: {len(f)}').classes('text-sm opacity-90')
             if len(f) == 0:
                 ui.label('Sonuç bulunamadı. Seçimleri değiştirip tekrar deneyin.').classes('text-red-4')
@@ -263,7 +290,22 @@ with ui.card().classes('max-w-2xl mx-auto mt-8'):
                 columns = [{'name': c, 'label': c, 'field': c, 'sortable': True} for c in show_cols]
                 ui.table(columns=columns, rows=rows).props('dense flat row-stripe').classes('w-full')
 
-    ui.button('Önerileri Göster', on_click=compute).classes('w-full btn-primary')
+        results_section.style('display:block')
+        results_open['value'] = True
+        cta_button.text = 'Önerileri Gizle'
 
-import os
+    def toggle_results():
+        """Göster/Gizle davranışı."""
+        if not results_open['value']:
+            compute()
+        else:
+            results_section.style('display:none')
+            results_open['value'] = False
+            cta_button.text = 'Önerileri Göster'
+
+    # Sabit CTA butonu (mobilde sabit, masaüstünde normal)
+    cta_button = ui.button('Önerileri Göster', on_click=toggle_results).classes('w-full btn-primary fixed-cta')
+    ui.element('div').classes('cta-spacer')
+
+# Render / local
 ui.run(host='0.0.0.0', port=int(os.getenv("PORT", "8080")), reload=False)
